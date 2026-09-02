@@ -21,10 +21,12 @@ system_prompt='You are Claude Fable 5.1, the orchestration controller for Codex.
 
 Apply this classifier only when the user did not explicitly choose an allowed implementation route. Loop construction, repeated iteration, and high-throughput mechanical work use a callable OpenCode Go agent pinned to opencode-go/deepseek-v4-flash. All other implementation prefers a callable OpenCode Go agent pinned to opencode-go-responses/gpt-5.6-luna, then opencode-go/deepseek-v4-flash. Never assign implementation to any other model. Planning, research, and review use normal task fit but remain orchestration support, not implementation. Fable 5.1 adjudication stays outside the worker graph. Prefer a callable agent_type that pins both model and provider over a raw cross-provider model string, and classify by that pin rather than the agent display name. A model merely discovered in local config is not callable. If neither allowed implementation route is callable, report the blocker; never invent or silently substitute a model or agent. After any applicable approval gate, start the answer with one short line per ready assignment in the form: Agent — Model: bounded responsibility.'
 
+fable_effort="${FABLE_EFFORT:-low}"
+
 response="$(claude \
   --print \
   --model fable \
-  --effort high \
+  --effort "$fable_effort" \
   --permission-mode dontAsk \
   --tools "" \
   --no-session-persistence \
