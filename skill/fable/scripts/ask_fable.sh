@@ -27,19 +27,32 @@ if [[ -n "${FABLE_MODEL:-}" ]]; then
 elif [[ -n "${FABLE_MODEL_CANDIDATES:-}" ]]; then
   read -r -a model_candidates <<<"$FABLE_MODEL_CANDIDATES"
 else
-  # Claude Code aliases vary by installation. Try the purpose-built alias first,
-  # then the standard local aliases without requiring a static model catalog.
-  model_candidates=(fable opus sonnet haiku)
+  model_candidates=()
+  # Claude Code does not expose a portable model-list command. Derive model IDs
+  # from the user's own settings and usage cache instead of shipping a catalog.
+  if command -v jq >/dev/null 2>&1; then
+    for model_file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" \
+      "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json.bak" \
+      "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/stats-cache.json"; do
+      [[ -f "$model_file" ]] || continue
+      while IFS= read -r model; do
+        [[ -n "$model" ]] && model_candidates+=("$model")
+      done < <(jq -r '.. | objects | .model? // empty, (.modelUsage? // {} | keys[])' "$model_file" 2>/dev/null)
+    done
+  fi
+  # An empty model means: use Claude Code's current locally configured model.
+  ((${#model_candidates[@]})) || model_candidates=("")
 fi
 
 response=""
 selected_model=""
 for model in "${model_candidates[@]}"; do
-  [[ -n "$model" ]] || continue
+  model_args=()
+  [[ -n "$model" ]] && model_args=(--model "$model")
   set +e
   candidate_response="$(claude \
     --print \
-    --model "$model" \
+    "${model_args[@]}" \
     --effort "$fable_effort" \
     --permission-mode dontAsk \
     --tools "" \
@@ -51,7 +64,7 @@ for model in "${model_candidates[@]}"; do
   set -e
   if [[ $candidate_status -eq 0 ]]; then
     response="$candidate_response"
-    selected_model="$model"
+    selected_model="${model:-default}"
     break
   fi
 done
