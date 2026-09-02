@@ -22,16 +22,43 @@ system_prompt='You are Claude Fable 5.1, the orchestration controller for Codex.
 Apply this classifier only when the user did not explicitly choose an allowed implementation route. Loop construction, repeated iteration, and high-throughput mechanical work use a callable OpenCode Go agent pinned to opencode-go/deepseek-v4-flash. All other implementation prefers a callable OpenCode Go agent pinned to opencode-go-responses/gpt-5.6-luna, then opencode-go/deepseek-v4-flash. Never assign implementation to any other model. Planning, research, and review use normal task fit but remain orchestration support, not implementation. Fable 5.1 adjudication stays outside the worker graph. Prefer a callable agent_type that pins both model and provider over a raw cross-provider model string, and classify by that pin rather than the agent display name. A model merely discovered in local config is not callable. If neither allowed implementation route is callable, report the blocker; never invent or silently substitute a model or agent. After any applicable approval gate, start the answer with one short line per ready assignment in the form: Agent — Model: bounded responsibility.'
 
 fable_effort="${FABLE_EFFORT:-low}"
+if [[ -n "${FABLE_MODEL:-}" ]]; then
+  model_candidates=("$FABLE_MODEL")
+elif [[ -n "${FABLE_MODEL_CANDIDATES:-}" ]]; then
+  read -r -a model_candidates <<<"$FABLE_MODEL_CANDIDATES"
+else
+  # Claude Code aliases vary by installation. Try the purpose-built alias first,
+  # then the standard local aliases without requiring a static model catalog.
+  model_candidates=(fable opus sonnet haiku)
+fi
 
-response="$(claude \
-  --print \
-  --model fable \
-  --effort "$fable_effort" \
-  --permission-mode dontAsk \
-  --tools "" \
-  --no-session-persistence \
-  --output-format text \
-  --system-prompt "$system_prompt" \
-  "$packet")"
+response=""
+selected_model=""
+for model in "${model_candidates[@]}"; do
+  [[ -n "$model" ]] || continue
+  set +e
+  candidate_response="$(claude \
+    --print \
+    --model "$model" \
+    --effort "$fable_effort" \
+    --permission-mode dontAsk \
+    --tools "" \
+    --no-session-persistence \
+    --output-format text \
+    --system-prompt "$system_prompt" \
+    "$packet" 2>&1)"
+  candidate_status=$?
+  set -e
+  if [[ $candidate_status -eq 0 ]]; then
+    response="$candidate_response"
+    selected_model="$model"
+    break
+  fi
+done
 
-printf 'Fable 5.1 speaks:\n\n%s\n' "$response"
+if [[ -z "$selected_model" ]]; then
+  echo "No usable local Claude model was found. Tried: ${model_candidates[*]}." >&2
+  exit 69
+fi
+
+printf 'Fable 5.1 speaks (%s):\n\n%s\n' "$selected_model" "$response"
